@@ -13,16 +13,22 @@ import (
 )
 
 var (
-	awsConfig      = flag.String("aws-config", "/home/mihai/.aws/config", "Path to aws config")
-	awsCredentials = flag.String("aws-credentials", "/home/mihai/.aws/credentials", "Path to aws credentials")
-	awsEnv         = flag.String("aws-env", "/home/mihai/.aws/env", "Path to aws env vars")
-	region         = flag.String("region", "eu-west-1", "AWS region")
+	region = flag.String("region", "eu-west-1", "AWS region")
 )
 
 func main() {
 	flag.Parse()
 
-	file, err := os.Open(*awsConfig)
+	homePath := os.Getenv("HOME")
+	if homePath == "" {
+		panic("home env variable is missing")
+	}
+
+	awsConfig := homePath + "/.aws/config"
+	awsCredentials := homePath + "/.aws/credentials"
+	awsEnv := homePath + "/.aws/env"
+
+	file, err := os.Open(awsConfig)
 	if err != nil {
 		panic(err)
 	}
@@ -37,15 +43,15 @@ func main() {
 	// how to print the output. The bubble tea renderer will swallow it.
 	aws_login(profile)
 	time.Sleep(500 * time.Millisecond)
-	aws_credentials(profile)
-	set_env_variables(profile)
+	aws_credentials(profile, awsCredentials)
+	set_env_variables(profile, awsEnv)
 }
 
-func set_env_variables(profile string) {
+func set_env_variables(profile string, awsEnv string) {
 	aws_profile := "export AWS_PROFILE=" + profile
 	aws_region := "export AWS_REGION=" + *region
 
-	file, err := os.OpenFile(*awsEnv, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
+	file, err := os.OpenFile(awsEnv, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
 	if err != nil {
 		panic(err)
 	}
@@ -74,8 +80,8 @@ func aws_login(profile string) {
 // TODO: decide whether to parse the file and extend / update as required.
 // This would mean that multiple tokens would be available at the same time,
 // which could potentially lead to applying changes in the wrong account.
-func aws_credentials(profile string) {
-	file, err := os.OpenFile(*awsCredentials, os.O_WRONLY|os.O_TRUNC, 0666)
+func aws_credentials(profile string, awsCredentials string) {
+	file, err := os.OpenFile(awsCredentials, os.O_WRONLY|os.O_TRUNC, 0666)
 	if err != nil {
 		panic(err)
 	}
