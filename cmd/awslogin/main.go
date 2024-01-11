@@ -8,22 +8,19 @@ import (
 	"os/exec"
 	"strings"
 	"time"
-
-	"github.com/constant-mihai/aws-login/pkg/renderer"
 )
 
 var (
-	region = flag.String("region", "eu-west-1", "AWS region")
+	region   = flag.String("region", "eu-west-1", "AWS region")
+	homePath = os.Getenv("HOME")
 )
 
 func main() {
 	flag.Parse()
 
-	homePath := os.Getenv("HOME")
 	if homePath == "" {
 		panic("home env variable is missing")
 	}
-
 	awsConfig := homePath + "/.aws/config"
 	awsCredentials := homePath + "/.aws/credentials"
 	awsEnv := homePath + "/.aws/env"
@@ -34,22 +31,14 @@ func main() {
 	}
 	defer file.Close()
 
-	profile := ""
-	renderer.Render(parse(file), func(choice string) {
-		profile = choice
-	})
-
-	// TODO: I could pass aws_login as a cb, but I would have to figure out
-	// how to print the output. The bubble tea renderer will swallow it.
-	aws_login(profile)
+	aws_login()
 	time.Sleep(500 * time.Millisecond)
-	aws_credentials(profile, awsCredentials)
-	set_env_variables(profile, awsEnv)
+	exportVars := aws_credentials(awsCredentials)
+	set_env_variables(exportVars, awsEnv)
 }
 
-func set_env_variables(profile string, awsEnv string) {
-	aws_profile := "export AWS_PROFILE=" + profile
-	aws_region := "export AWS_REGION=" + *region
+func set_env_variables(exportVars string, awsEnv string) {
+	awsRegion := "export AWS_REGION=" + *region
 
 	file, err := os.OpenFile(awsEnv, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
 	if err != nil {
@@ -57,18 +46,23 @@ func set_env_variables(profile string, awsEnv string) {
 	}
 	defer file.Close()
 
-	_, err = file.WriteString(aws_profile + "\n" + aws_region + "\n")
+	_, err = file.WriteString(awsRegion + "\n" + exportVars + "\n")
 	if err != nil {
 		panic(err)
 	}
 
-	fmt.Printf("%s\n", aws_profile)
-	fmt.Printf("%s\n", aws_region)
+	fmt.Printf("%s\n", awsRegion)
+	fmt.Printf("%s\n", exportVars)
 }
 
-func aws_login(profile string) {
-	out, err := exec.Command("bash", "-c", "aws sso login --sso-session emnify --profile "+
-		profile).CombinedOutput()
+func aws_login() {
+	file, err := os.Open(homePath + "/.aws/config")
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+
+	out, err := exec.Command("bash", "-c", "aws sso login").CombinedOutput()
 	if err != nil {
 		fmt.Printf("%s\n", out)
 		panic(err)
@@ -80,19 +74,19 @@ func aws_login(profile string) {
 // TODO: decide whether to parse the file and extend / update as required.
 // This would mean that multiple tokens would be available at the same time,
 // which could potentially lead to applying changes in the wrong account.
-func aws_credentials(profile string, awsCredentials string) {
+func aws_credentials(awsCredentials string) string {
 	file, err := os.OpenFile(awsCredentials, os.O_WRONLY|os.O_TRUNC, 0666)
 	if err != nil {
 		panic(err)
 	}
 	defer file.Close()
 
-	_, err = file.WriteString("[" + profile + "]\n")
+	_, err = file.WriteString("[awslogin]\n")
 	if err != nil {
 		panic(err)
 	}
 
-	out, err := exec.Command("bash", "-c", "aws configure export-credentials --format env-no-export").
+	out, err := exec.Command("bash", "-c", "aws configure export-credentials --format=env").
 		CombinedOutput()
 	if err != nil {
 		fmt.Printf("%s\n", out)
@@ -100,14 +94,19 @@ func aws_credentials(profile string, awsCredentials string) {
 	}
 
 	outStr := string(out)
+	exportVars := outStr
+	outStr = strings.ReplaceAll(outStr, "export ", "")
 	outStr = strings.Replace(outStr, "AWS_ACCESS_KEY_ID", "aws_access_key_id", 1)
 	outStr = strings.Replace(outStr, "AWS_SECRET_ACCESS_KEY", "aws_secret_access_key", 1)
 	outStr = strings.Replace(outStr, "AWS_SESSION_TOKEN", "aws_session_token", 1)
+	outStr = strings.Replace(outStr, "AWS_CREDENTIAL_EXPIRATION", "aws_credential_expiration", 1)
 
 	_, err = file.WriteString(outStr)
 	if err != nil {
 		panic(err)
 	}
+
+	return exportVars
 }
 
 func parse(file *os.File) []string {
