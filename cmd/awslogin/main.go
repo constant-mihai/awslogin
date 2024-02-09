@@ -21,19 +21,11 @@ func main() {
 	if homePath == "" {
 		panic("home env variable is missing")
 	}
-	awsConfig := homePath + "/.aws/config"
-	awsCredentials := homePath + "/.aws/credentials"
 	awsEnv := homePath + "/.aws/env"
-
-	file, err := os.Open(awsConfig)
-	if err != nil {
-		panic(err)
-	}
-	defer file.Close()
 
 	aws_login()
 	time.Sleep(500 * time.Millisecond)
-	exportVars := aws_credentials(awsCredentials)
+	exportVars := aws_credentials()
 	set_env_variables(exportVars, awsEnv)
 }
 
@@ -56,12 +48,6 @@ func set_env_variables(exportVars string, awsEnv string) {
 }
 
 func aws_login() {
-	file, err := os.Open(homePath + "/.aws/config")
-	if err != nil {
-		panic(err)
-	}
-	defer file.Close()
-
 	out, err := exec.Command("bash", "-c", "aws sso login").CombinedOutput()
 	if err != nil {
 		fmt.Printf("%s\n", out)
@@ -71,21 +57,7 @@ func aws_login() {
 	fmt.Printf("%s\n", string(out))
 }
 
-// TODO: decide whether to parse the file and extend / update as required.
-// This would mean that multiple tokens would be available at the same time,
-// which could potentially lead to applying changes in the wrong account.
-func aws_credentials(awsCredentials string) string {
-	file, err := os.OpenFile(awsCredentials, os.O_WRONLY|os.O_TRUNC, 0666)
-	if err != nil {
-		panic(err)
-	}
-	defer file.Close()
-
-	_, err = file.WriteString("[awslogin]\n")
-	if err != nil {
-		panic(err)
-	}
-
+func aws_credentials() string {
 	out, err := exec.Command("bash", "-c", "aws configure export-credentials --format=env").
 		CombinedOutput()
 	if err != nil {
@@ -93,18 +65,7 @@ func aws_credentials(awsCredentials string) string {
 		panic(err)
 	}
 
-	outStr := string(out)
-	exportVars := outStr
-	outStr = strings.ReplaceAll(outStr, "export ", "")
-	outStr = strings.Replace(outStr, "AWS_ACCESS_KEY_ID", "aws_access_key_id", 1)
-	outStr = strings.Replace(outStr, "AWS_SECRET_ACCESS_KEY", "aws_secret_access_key", 1)
-	outStr = strings.Replace(outStr, "AWS_SESSION_TOKEN", "aws_session_token", 1)
-	outStr = strings.Replace(outStr, "AWS_CREDENTIAL_EXPIRATION", "aws_credential_expiration", 1)
-
-	_, err = file.WriteString(outStr)
-	if err != nil {
-		panic(err)
-	}
+	exportVars := string(out)
 
 	return exportVars
 }
